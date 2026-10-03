@@ -12,6 +12,7 @@ import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js'
 // --------------------
 
 const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x0b1020)
 scene.fog = new THREE.Fog(0x0b1020, 2.0, 10.5)
 
 const camera = new THREE.PerspectiveCamera(
@@ -22,9 +23,9 @@ const camera = new THREE.PerspectiveCamera(
 )
 camera.position.z = 5
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-renderer.setClearColor(0x000000, 0)
+renderer.setClearColor(0x0b1020, 1)
 renderer.setSize(window.innerWidth, window.innerHeight)
 document.body.appendChild(renderer.domElement)
 
@@ -44,7 +45,7 @@ window.addEventListener('resize', () => {
 })
 
 // --------------------
-// PARTICLES (Optimized)
+// PARTICLES
 // --------------------
 
 const particleCount = 7000
@@ -166,60 +167,100 @@ function createStarTexture() {
 }
 
 // --------------------
-// HAND TRACKING
+// HAND TRACKING & POINTER INTERACTION
 // --------------------
 
-let handLandmarker
+let handLandmarker = null
 let runningMode = "VIDEO"
+let lastHandDetectedTime = 0
 
 const video = document.getElementById('video')
-video.style.display = "none"
+const statusText = document.getElementById('status-text')
+const statusDot = document.getElementById('status-dot')
 
-async function createHandLandmarker() {
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-  )
-
-  handLandmarker = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath:
-        "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
-    },
-    runningMode,
-    numHands: 1
-  })
+function updateStatus(message, color) {
+  if (statusText) statusText.textContent = message
+  if (statusDot) statusDot.style.backgroundColor = color
 }
 
-await createHandLandmarker()
-
-navigator.mediaDevices.getUserMedia({ video: true })
-  .then(stream => {
-    video.srcObject = stream
-    video.play()
-    requestAnimationFrame(detectHands)
-  })
-
-let lastDetectionTime = 0
 let handPosition = new THREE.Vector3()
 let targetHandPosition = new THREE.Vector3()
+let lastDetectionTime = 0
+
+// Pointer / Mouse Fallback (only takes over if hand is not detected for >1.5 seconds)
+window.addEventListener('pointermove', (e) => {
+  if (performance.now() - lastHandDetectedTime > 1500) {
+    targetHandPosition.x = (e.clientX / window.innerWidth - 0.5) * 6
+    targetHandPosition.y = -(e.clientY / window.innerHeight - 0.5) * 6
+    targetHandPosition.z = 0
+  }
+})
+
+async function createHandLandmarker() {
+  try {
+    updateStatus("Loading MediaPipe Hand Model...", "#f59e0b")
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm"
+    )
+
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath:
+          "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+      },
+      runningMode,
+      numHands: 1
+    })
+    updateStatus("Webcam Hand Tracking Active (Show hand to camera)", "#10b981")
+  } catch (err) {
+    console.warn("MediaPipe model load failed, active mouse mode:", err)
+    updateStatus("Mouse Pointer Active (Hand tracking model unavailable)", "#3b82f6")
+  }
+}
+
+createHandLandmarker()
+
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+  navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+    .then(stream => {
+      if (video) {
+        video.srcObject = stream
+        video.onloadedmetadata = () => {
+          video.play()
+          requestAnimationFrame(detectHands)
+        }
+      }
+    })
+    .catch(err => {
+      console.warn("Webcam access not granted. Mouse interaction active:", err)
+      updateStatus("Mouse Pointer Active (Webcam permission required for hand tracking)", "#3b82f6")
+    })
+}
 
 async function detectHands() {
+  if (video && video.currentTime > 0 && !video.paused && !video.ended && handLandmarker) {
+    const now = performance.now()
+    if (now - lastDetectionTime > 30) {
+      lastDetectionTime = now
+      try {
+        const results = handLandmarker.detectForVideo(video, now)
+        if (results && results.landmarks && results.landmarks.length > 0) {
+          lastHandDetectedTime = now
+          const indexTip = results.landmarks[0][8]
 
-  if (video.readyState === 4) {
+          // Mirror horizontal X coordinate for natural front-facing webcam movement
+          targetHandPosition.x = (0.5 - indexTip.x) * 6
+          targetHandPosition.y = -(indexTip.y - 0.5) * 6
+          targetHandPosition.z = -indexTip.z * 6
 
-    // Run detection at ~25 FPS (performance boost)
-    if (performance.now() - lastDetectionTime > 40) {
-
-      lastDetectionTime = performance.now()
-
-      const results = handLandmarker.detectForVideo(video, performance.now())
-
-      if (results.landmarks.length > 0) {
-        const indexTip = results.landmarks[0][8]
-
-        targetHandPosition.x = (indexTip.x - 0.5) * 6
-        targetHandPosition.y = -(indexTip.y - 0.5) * 6
-        targetHandPosition.z = -indexTip.z * 6
+          updateStatus("✋ Hand Tracked (Repelling Particles)", "#10b981")
+        } else {
+          if (now - lastHandDetectedTime > 1500) {
+            updateStatus("🖱️ Mouse Pointer Active (Show hand to camera)", "#3b82f6")
+          }
+        }
+      } catch (err) {
+        console.warn("Detection frame error:", err)
       }
     }
   }
@@ -228,7 +269,7 @@ async function detectHands() {
 }
 
 // --------------------
-// ANIMATION LOOP (Optimized Physics)
+// ANIMATION LOOP & POSTPROCESSING
 // --------------------
 
 const radius = 1.6
@@ -300,7 +341,6 @@ function animate() {
   const orig = originalPositions
 
   for (let i = 0; i < particleCount; i++) {
-
     const i3 = i * 3
 
     const dx = pos[i3] - handPosition.x
@@ -309,9 +349,8 @@ function animate() {
 
     const distSq = dx * dx + dy * dy + dz * dz
 
-    // Repulsion (no sqrt)
+    // Repulsion
     if (distSq < radiusSq) {
-
       const force = (radiusSq - distSq) / radiusSq
 
       vel[i3]     += dx * force * 0.2
@@ -319,7 +358,7 @@ function animate() {
       vel[i3 + 2] += dz * force * 0.2
     }
 
-    // Spring back (softer)
+    // Spring back
     vel[i3]     += (orig[i3]     - pos[i3])     * 0.002
     vel[i3 + 1] += (orig[i3 + 1] - pos[i3 + 1]) * 0.002
     vel[i3 + 2] += (orig[i3 + 2] - pos[i3 + 2]) * 0.002

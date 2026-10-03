@@ -1,0 +1,69 @@
+# ==========================================
+# Constellation Games - Global Git Ignore
+# ==========================================
+
+# ------------------------------------------
+# Java & IDE Build Artifacts
+# ------------------------------------------
+*.class
+*.jar
+*.war
+*.ear
+bin/
+out/
+target/
+build/
+.gradle/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse
+.classpath
+.project
+.settings/
+.factorypath
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/.nb-gradle/
+
+# VS Code
+.vscode/
+
+# ------------------------------------------
+# JavaScript / Node.js
+# ------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+dist-ssr/
+*.local
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ------------------------------------------
+# OS & System Files
+# ------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
